@@ -97,7 +97,10 @@ jobs:
       - name: Download YouTube Plus (by version)
         if: ${{ inputs.tweak_version != '' }}
         run: |
-          deb_url="https://github.com/dayanch96/YTLite/releases/download/v${{ inputs.tweak_version }}/com.dvntm.ytlite_${{ inputs.tweak_version }}_iphoneos-arm.deb"
+          version="${{ inputs.tweak_version }}"
+          # deb 檔名會把版本裡的 - 換成 .（例如 tag v6.0-b2 的 asset 是 ..._6.0.b2_...），
+          # 直接拿版本號拼檔名會 404，這裡跟著轉。
+          deb_url="https://github.com/dayanch96/YTLite/releases/download/v${version}/com.dvntm.ytlite_${version//-/.}_iphoneos-arm.deb"
           wget "$deb_url" --no-verbose -O ytplus.deb
 
       - name: Download YouTube Plus (by URL)
