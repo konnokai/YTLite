@@ -69,6 +69,12 @@ on:
         required: true
         type: string
 
+      redirect_deb_url:
+        description: "URL of the YTL Domain Redirect deb to inject (optional; a direct .deb or a zip containing one)"
+        default: ""
+        required: false
+        type: string
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -98,6 +104,68 @@ jobs:
         with:
           name: built-debs
           path: ${{ github.workspace }}
+
+      - name: Download YTL Domain Redirect deb
+        if: ${{ inputs.redirect_deb_url != '' }}
+        env:
+          REDIRECT_DEB_TOKEN: ${{ secrets.REDIRECT_DEB_TOKEN }}
+          GH_TOKEN: ${{ secrets.REDIRECT_DEB_TOKEN || github.token }}
+        run: |
+          set -euo pipefail
+          src="${{ inputs.redirect_deb_url }}"
+          # 私有 repo 的 releases/download 直連 URL 帶 token 會 404，改成用 gh 抓；
+          # 其他 URL（公開直連、API asset URL、已簽章 URL）走 curl。
+          gh_repo=""
+          gh_tag=""
+          gh_asset=""
+          if [[ "$src" =~ ^https://github\.com/([^/]+)/([^/]+)/releases/download/([^/]+)/([^/]+)$ ]]; then
+            gh_repo="${BASH_REMATCH[1]}/${BASH_REMATCH[2]}"
+            gh_tag="${BASH_REMATCH[3]}"
+            gh_asset="${BASH_REMATCH[4]}"
+          elif [[ "$src" =~ ^https://github\.com/([^/]+)/([^/]+)/releases/latest/download/([^/]+)$ ]]; then
+            gh_repo="${BASH_REMATCH[1]}/${BASH_REMATCH[2]}"
+            gh_asset="${BASH_REMATCH[3]}"
+          fi
+          if [ -n "$gh_repo" ]; then
+            rm -rf /tmp/ytlredirect-dl
+            mkdir -p /tmp/ytlredirect-dl
+            if [ -n "$gh_tag" ]; then
+              gh release download "$gh_tag" -R "$gh_repo" -p "$gh_asset" -D /tmp/ytlredirect-dl
+            else
+              gh release download -R "$gh_repo" -p "$gh_asset" -D /tmp/ytlredirect-dl
+            fi
+            src="/tmp/ytlredirect-dl/$gh_asset"
+          else
+            curl_args=(-fL --retry 3)
+            if [ -n "${REDIRECT_DEB_TOKEN:-}" ]; then
+              curl_args+=(-H "Authorization: Bearer $REDIRECT_DEB_TOKEN" -H "Accept: application/octet-stream")
+            fi
+            curl "${curl_args[@]}" "$src" -o /tmp/ytlredirect-download
+            src="/tmp/ytlredirect-download"
+          fi
+          case "$(file --mime-type -b "$src")" in
+            application/vnd.debian.binary-package|application/x-debian-package)
+              mv "$src" ytlredirect.deb
+              ;;
+            application/zip)
+              # zips contain the debs, e.g. under packages/ in an artifact zip
+              rm -rf /tmp/ytlredirect-extract
+              mkdir -p /tmp/ytlredirect-extract
+              unzip -q "$src" -d /tmp/ytlredirect-extract
+              deb=$(find /tmp/ytlredirect-extract -name '*_iphoneos-arm.deb' -print -quit)
+              [ -n "$deb" ] || deb=$(find /tmp/ytlredirect-extract -name '*.deb' -print -quit)
+              if [ -z "$deb" ]; then
+                echo "::error::No .deb found inside the downloaded zip."
+                exit 1
+              fi
+              cp "$deb" ytlredirect.deb
+              ;;
+            *)
+              echo "::error::Downloaded file is neither a deb nor a zip."
+              exit 1
+              ;;
+          esac
+          file ytlredirect.deb
 
       - name: Check Inputs
         if: ${{ !inputs.create_cyan && !inputs.create_tf }}
