@@ -58,9 +58,15 @@ on:
         type: string
 
       tweak_version:
-        description: "The version of the tweak to use. Enter the version manually from dayanch96/YTLite/releases or leave default"
+        description: "The version of the tweak to use. Enter the version manually from dayanch96/YTLite/releases or leave default (ignored when tweak_url is set)"
         default: "5.2.2"
         required: true
+        type: string
+
+      tweak_url:
+        description: "Optional: direct URL to a prebuilt ytplus.deb (e.g. a patched build). When set, it is used instead of downloading tweak_version from the original repo. GitHub release assets in private repos need the REDIRECT_DEB_TOKEN (or TWEAK_DEB_TOKEN) secret"
+        default: ""
+        required: false
         type: string
 
       display_name:
@@ -88,6 +94,7 @@ concurrency:
 jobs:
   build-tweaks:
     uses: ./.github/workflows/_build_tweaks.yml
+    secrets: inherit
     with:
       enable_youpip: ${{ inputs.enable_youpip }}
       enable_ytuhd: ${{ inputs.enable_ytuhd }}
@@ -97,6 +104,7 @@ jobs:
       enable_demc: ${{ inputs.enable_demc }}
       enable_localization: ${{ inputs.enable_localization }}
       tweak_version: ${{ inputs.tweak_version }}
+      tweak_url: ${{ inputs.tweak_url }}
 
   package:
     name: Package IPA

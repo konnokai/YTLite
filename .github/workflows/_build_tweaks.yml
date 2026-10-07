@@ -44,6 +44,7 @@ on:
         default: ""
 
       tweak_url:
+        description: "Prebuilt ytplus.deb URL (for example a patched build); when set, the tweak_version download is skipped"
         type: string
         required: false
         default: ""
@@ -95,7 +96,7 @@ jobs:
           mv *.sdk $THEOS/sdks
 
       - name: Download YouTube Plus (by version)
-        if: ${{ inputs.tweak_version != '' }}
+        if: ${{ inputs.tweak_version != '' && inputs.tweak_url == '' }}
         run: |
           version="${{ inputs.tweak_version }}"
           # deb 檔名會把版本裡的 - 換成 .（例如 tag v6.0-b2 的 asset 是 ..._6.0.b2_...），
@@ -105,8 +106,43 @@ jobs:
 
       - name: Download YouTube Plus (by URL)
         if: ${{ inputs.tweak_url != '' }}
+        env:
+          # 私有 repo 的 release asset 需要 token；沒設專用 secret 時沿用
+          # redirect deb 用的那顆 PAT。
+          TWEAK_DEB_TOKEN: ${{ secrets.TWEAK_DEB_TOKEN || secrets.REDIRECT_DEB_TOKEN }}
+          GH_TOKEN: ${{ secrets.TWEAK_DEB_TOKEN || secrets.REDIRECT_DEB_TOKEN || github.token }}
         run: |
-          wget "${{ inputs.tweak_url }}" --no-verbose -O ytplus.deb
+          set -euo pipefail
+          src="${{ inputs.tweak_url }}"
+          # 私有 repo 的 releases/download 直連 URL 帶 token 會 404，改成用 gh 抓；
+          # 其他 URL（公開直連、API asset URL、已簽章 URL）走 curl。
+          gh_repo=""
+          gh_tag=""
+          gh_asset=""
+          if [[ "$src" =~ ^https://github\.com/([^/]+)/([^/]+)/releases/download/([^/]+)/([^/]+)$ ]]; then
+            gh_repo="${BASH_REMATCH[1]}/${BASH_REMATCH[2]}"
+            gh_tag="${BASH_REMATCH[3]}"
+            gh_asset="${BASH_REMATCH[4]}"
+          elif [[ "$src" =~ ^https://github\.com/([^/]+)/([^/]+)/releases/latest/download/([^/]+)$ ]]; then
+            gh_repo="${BASH_REMATCH[1]}/${BASH_REMATCH[2]}"
+            gh_asset="${BASH_REMATCH[3]}"
+          fi
+          if [ -n "$gh_repo" ]; then
+            rm -rf /tmp/tweak-deb-dl
+            mkdir -p /tmp/tweak-deb-dl
+            if [ -n "$gh_tag" ]; then
+              gh release download "$gh_tag" -R "$gh_repo" -p "$gh_asset" -D /tmp/tweak-deb-dl
+            else
+              gh release download -R "$gh_repo" -p "$gh_asset" -D /tmp/tweak-deb-dl
+            fi
+            mv "/tmp/tweak-deb-dl/$gh_asset" ytplus.deb
+          else
+            curl_args=(-fL --retry 3)
+            if [ -n "${TWEAK_DEB_TOKEN:-}" ]; then
+              curl_args+=(-H "Authorization: Bearer $TWEAK_DEB_TOKEN" -H "Accept: application/octet-stream")
+            fi
+            curl "${curl_args[@]}" "$src" -o ytplus.deb
+          fi
           file_type=$(file --mime-type -b ytplus.deb)
           if [[ "$file_type" != "application/vnd.debian.binary-package" ]]; then
             echo "::error::Validation failed: The file is not a valid DEB file. Detected type: $file_type."

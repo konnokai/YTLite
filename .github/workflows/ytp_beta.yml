@@ -52,7 +52,7 @@ on:
         type: string
 
       tweak_url:
-        description: "URL to the YouTube Plus tweak file"
+        description: "URL to the YouTube Plus tweak file (a ytplus.deb, e.g. a patched build). GitHub release assets in private repos need the REDIRECT_DEB_TOKEN (or TWEAK_DEB_TOKEN) secret"
         default: ""
         required: true
         type: string
@@ -88,6 +88,7 @@ concurrency:
 jobs:
   build-tweaks:
     uses: ./.github/workflows/_build_tweaks.yml
+    secrets: inherit
     with:
       enable_youpip: ${{ inputs.enable_youpip }}
       enable_ytuhd: ${{ inputs.enable_ytuhd }}
